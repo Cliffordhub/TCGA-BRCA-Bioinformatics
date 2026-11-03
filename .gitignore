@@ -1,0 +1,23 @@
+
+# RStudio files
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+
+# Temporary files
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+
+# Large or downloaded data
+data/raw/*
+data/processed/*
+
+# Keep folder structure
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+
+
