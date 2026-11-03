@@ -1,0 +1,6 @@
+variable,test,statistic,p_value,samples,significance
+Combined four-gene status,Pearson chi-square,2.487565962379492,0.47754238402738625,1073,Not statistically significant
+TP53,Pearson chi-square,2.4507411565163255,0.4842590671256,1073,Not statistically significant
+BRCA1,Fisher exact test (Monte Carlo),NA,0.5215478452154785,1073,Not statistically significant
+BRCA2,Fisher exact test (Monte Carlo),NA,0.7192280771922808,1073,Not statistically significant
+PIK3CA,Pearson chi-square,2.5865356330853873,0.459854915347088,1073,Not statistically significant

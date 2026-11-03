@@ -1,0 +1,11 @@
+item,value
+Input dataset,data/processed/analysis_dataset.rds
+Total samples,1101
+Stage association samples,1073
+Kaplan-Meier samples,1083
+Cox regression samples,1058
+Cox model,Mutation status + AGE + stage_group
+Survival coding,1 = death; 0 = censored
+Mutation reference,Mutated
+Stage reference,Stage I
+Random seed,123

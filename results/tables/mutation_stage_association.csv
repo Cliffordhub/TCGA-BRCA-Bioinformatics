@@ -1,0 +1,6 @@
+gene,test,statistic,degrees_of_freedom,p_value,sample_size
+Combined four-gene status,Pearson chi-square,2.487565962379492,3,0.47754238402738625,1073
+TP53,Pearson chi-square,2.4507411565163255,3,0.4842590671256,1073
+BRCA1,Fisher Monte Carlo,NA,NA,0.5242475752424758,1073
+BRCA2,Fisher Monte Carlo,NA,NA,0.718028197180282,1073
+PIK3CA,Pearson chi-square,2.5865356330853873,3,0.459854915347088,1073

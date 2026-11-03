@@ -1,1197 +1,438 @@
 
-# ==========================================
-# 02. CONNECTING TO CBIOPORTAL
+# ============================================================
+# 02. DATA ACQUISITION AND QUALITY CONTROL
 # TCGA-BRCA Bioinformatics Project
-# ==========================================
+#
+# Purpose:
+# 1. Load existing datasets where available.
+# 2. Retrieve missing datasets from cBioPortal.
+# 3. Validate dataset structure and integrity.
+# 4. Record data provenance and software versions.
+# ============================================================
 
-# Install Bioconductor manager if necessary
-if (!requireNamespace("BiocManager", quietly = TRUE)) {
-  install.packages("BiocManager")
-}
 
-# Install cBioPortalData
-if (!requireNamespace("cBioPortalData", quietly = TRUE)) {
-  BiocManager::install("cBioPortalData")
-}
+# 1. Load required packages ----------------------------------
 
-# Load the package
-library(cBioPortalData)
+required_packages <- c(
+  "cBioPortalData",
+  "dplyr",
+  "here",
+  "readr"
+)
 
-# Connect to cBioPortal
-cbio <- cBioPortal()
-
-# Retrieve available cancer studies
-studies <- getStudies(cbio)
-
-# Display the first six studies
-head(studies)
-
-# Search for breast cancer studies
-
-library(dplyr)
-
-brca_studies <- studies %>%
-  filter(
-    grepl(
-      "breast|brca",
-      paste(name, description, studyId),
-      ignore.case = TRUE
-    )
+missing_packages <- required_packages[
+  !vapply(
+    required_packages,
+    requireNamespace,
+    logical(1),
+    quietly = TRUE
   )
-
-# Display relevant studies
-print(brca_studies)
-print(n= ...)
-write.csv(
-  brca_studies,
-  here::here(
-    "data",
-    "processed",
-    "available_breast_cancer_studies.csv"
-  ),
-  row.names = FALSE
-)
-
-# ==========================================
-# 03. EXAMINING BREAST CANCER STUDIES
-# ==========================================
-
-# Display the structure of the study dataset
-str(brca_studies)
-
-# Display column names
-colnames(brca_studies)
-
-# Display the first 10 records
-head(brca_studies, 10)
-
-# Count the number of available studies
-nrow(brca_studies)
-
-
-
-# Search specifically for TCGA breast cancer studies
-
-tcga_brca <- brca_studies %>%
-  filter(
-    grepl("tcga", studyId, ignore.case = TRUE)
-  )
-
-# Display important study information
-tcga_brca %>%
-  select(any_of(c(
-    "studyId",
-    "name",
-    "description",
-    "allSampleCount",
-    "publicStudy",
-    "readPermission"
-  ))) %>%
-  print(n = Inf)
-
-# Set the selected study ID
-study_id <- "brca_tcga"
-
-# Examine available molecular profiles
-profiles <- molecularProfiles(
-  cbio,
-  studyId = study_id
-)
-
-# Display the available profiles
-print(profiles)
-
-# Examine available clinical information
-clinical_data <- clinicalData(
-  cbio,
-  studyId = study_id
-)
-
-# Examine the clinical dataset
-dim(clinical_data)
-head(clinical_data)
-
-
-
-# ==========================================
-# 04. CLINICAL DATA EXPLORATION
-# ==========================================
-
-# 1. Check the number of rows and columns
-dim(clinical_data)
-
-# 2. Display all column names
-colnames(clinical_data)
-
-# 3. Check the first few records
-head(clinical_data)
-
-# 4. Check for missing values
-missing_values <- colSums(is.na(clinical_data))
-
-# Display variables with missing values
-sort(missing_values, decreasing = TRUE)[1:15]
-
-# 5. Check duplicate patient IDs
-sum(duplicated(clinical_data$patientId))
-
-# 6. Count unique patient IDs
-length(unique(clinical_data$patientId))
-
-# 7. Examine cancer stages
-table(
-  clinical_data$AJCC_PATHOLOGIC_TUMOR_STAGE,
-  useNA = "ifany"
-)
-
-# 8. Examine patient ages
-summary(as.numeric(clinical_data$AGE))
-
-
-
-
-# 9. Identify duplicated patient records
-
-duplicated_patients <- clinical_data %>%
-  filter(duplicated(patientId) | duplicated(patientId, fromLast = TRUE)) %>%
-  arrange(patientId)
-
-# Display duplicated records
-print(duplicated_patients)
-
-# 10. Examine patient and sample identifiers
-
-duplicated_patients %>%
-  select(patientId, sampleId, SAMPLE_TYPE, AGE,
-         AJCC_PATHOLOGIC_TUMOR_STAGE)
-
-# 11. Examine overall survival information
-
-# Check the first few survival records
-head(clinical_data %>%
-       select(patientId, OS_MONTHS, OS_STATUS))
-
-# Count missing overall survival values
-colSums(is.na(clinical_data[, c("OS_MONTHS", "OS_STATUS")]))
-
-# Examine the different survival outcome categories
-table(clinical_data$OS_STATUS, useNA = "ifany")
-
-# Summarise overall survival time
-summary(as.numeric(clinical_data$OS_MONTHS))
-
-
-
-# 12. Investigate records with negative overall survival time
-
-clinical_data %>%
-  mutate(OS_MONTHS_NUM = as.numeric(OS_MONTHS)) %>%
-  filter(OS_MONTHS_NUM < 0) %>%
-  select(patientId, sampleId, SAMPLE_TYPE, OS_MONTHS, OS_STATUS)
-
-# 13. Examine survival information for patients
-# with both primary and metastatic samples
-
-clinical_data %>%
-  filter(patientId %in% duplicated_patients$patientId) %>%
-  select(patientId, sampleId, SAMPLE_TYPE,
-         OS_MONTHS, OS_STATUS) %>%
-  arrange(patientId, sampleId)
-
-# 14. Examine the distribution of sample types
-
-table(clinical_data$SAMPLE_TYPE, useNA = "ifany")
-
-# 15. Check whether the primary tumour records
-# have unique patient IDs
-
-primary_data <- clinical_data %>%
-  filter(SAMPLE_TYPE == "Primary")
-
-dim(primary_data)
-
-sum(duplicated(primary_data$patientId))
-
-length(unique(primary_data$patientId))
-
-
-
-# 16. Create a patient-level clinical dataset
-# using primary tumour samples
-
-clinical_primary <- primary_data
-
-# 17. Convert age and survival time to numeric values
-
-clinical_primary <- clinical_primary %>%
-  mutate(
-    AGE = as.numeric(AGE),
-    OS_MONTHS = as.numeric(OS_MONTHS)
-  )
-
-# 18. Check the new dataset
-
-dim(clinical_primary)
-
-# Confirm one row per patient
-sum(duplicated(clinical_primary$patientId))
-
-# Check missing values in important variables
-colSums(is.na(
-  clinical_primary[, c(
-    "AGE",
-    "AJCC_PATHOLOGIC_TUMOR_STAGE",
-    "OS_MONTHS",
-    "OS_STATUS"
-  )]
-))
-
-# 19. Identify records with invalid survival time
-
-clinical_primary %>%
-  filter(OS_MONTHS < 0) %>%
-  select(patientId, OS_MONTHS, OS_STATUS)
-
-
-
-# 20. Inspect the molecular profiles available
-# in the selected TCGA-BRCA study
-
-print(profiles)
-
-# 21. Inspect the study ID being used
-
-study_id
-
-# 22. Examine the available profile identifiers
-
-profiles$ molecularProfileId
-
-
-
-# 23. Select the mutation profile
-
-mutation_profile <- "brca_tcga_mutations"
-
-# 24. Retrieve mutation data from cBioPortal
-
-mutation_data <- molecularData(
-  cbio,
-  studyId = study_id,
-  molecularProfileId = mutation_profile
-)
-
-# 25. Inspect the retrieved data
-
-dim(mutation_data)
-
-head(mutation_data)
-
-colnames(mutation_data)
-
-
-# Check the arguments accepted by molecularData()
-args(molecularData)
-
-# Check the installed package version
-packageVersion("cBioPortalData")
-
-# Check the function documentation
-?molecularData
-
-
-
-# 23. Select the mutation profile
-
-mutation_profile <- "brca_tcga_mutations"
-
-# 24. Retrieve mutation data
-
-mutation_data <- molecularData(
-  api = cbio,
-  molecularProfileIds = mutation_profile
-)
-
-# 25. Inspect the retrieved data
-
-dim(mutation_data)
-
-head(mutation_data)
-
-colnames(mutation_data)
-
-
-
-
-# 23. Select the mutation profile
-mutation_profile <- "brca_tcga_mutations"
-
-# 24. Define Entrez Gene IDs for our four genes
-gene_ids <- c("7157", "672", "675", "5290")
-
-# 25. Retrieve mutation data for the selected genes
-mutation_data <- molecularData(
-  api = cbio,
-  molecularProfileIds = mutation_profile,
-  entrezGeneIds = gene_ids
-)
-
-# 26. Inspect the retrieved data
-dim(mutation_data)
-head(mutation_data)
-colnames(mutation_data)
-
-
-
-# 23. Select the mutation profile
-mutation_profile <- "brca_tcga_mutations"
-
-# 24. Define Entrez Gene IDs
-gene_ids <- c("7157", "672", "675", "5290")
-
-# 25. Extract primary tumour sample IDs
-primary_sample_ids <- unique(primary_data$sampleId)
-
-# Check the number of samples
-length(primary_sample_ids)
-
-# 26. Retrieve mutation data
-mutation_data <- molecularData(
-  api = cbio,
-  molecularProfileIds = mutation_profile,
-  entrezGeneIds = gene_ids,
-  sampleIds = primary_sample_ids
-)
-
-# 27. Inspect the retrieved data
-dim(mutation_data)
-head(mutation_data)
-colnames(mutation_data)
-
-
-# 1. Confirm the study ID
-study_id
-
-# 2. Display the complete molecular profile information
-print(profiles)
-
-# 3. Retrieve the profiles again for the selected study
-profiles_check <- molecularProfiles(
-  cbio,
-  studyId = study_id
-)
-
-print(profiles_check)
-
-# 4. Check the profile IDs returned
-profiles_check$molecularProfileId
-
-
-
-# 28. Retrieve mutations for a small test group
-
-test_sample_ids <- primary_sample_ids[1:5]
-
-test_mutations <- mutationData(
-  api = cbio,
-  molecularProfileIds = "brca_tcga_mutations",
-  entrezGeneIds = c(7157, 672, 675, 5290),
-  sampleIds = test_sample_ids
-)
-
-# 29. Inspect the results
-
-dim(test_mutations)
-
-head(test_mutations)
-
-colnames(test_mutations)
-
-
-# Extract the tibble from the list
-test_mutation_table <- test_mutations$brca_tcga_mutations
-
-# Inspect its dimensions
-dim(test_mutation_table)
-
-# Inspect its column names
-colnames(test_mutation_table)
-
-# View all three mutation records
-View(test_mutation_table)
-
-test_mutation_table %>%
-  count(entrezGeneId)
-
-test_mutation_table %>%
-  count(entrezGeneId)
-
-class(test_mutations)
-
-names(test_mutations)
-
-class(test_mutations$brca_tcga_mutations)
-
-
-test_mutation_table <- test_mutations[["brca_tcga_mutations"]]
-
-class(test_mutation_table)
-
-dim(test_mutation_table)
-
-dplyr::count(test_mutation_table, entrezGeneId)
-
-
-# Retrieve mutations across all primary tumour samples
-mutation_data <- mutationData(
-  api = cbio,
-  molecularProfileIds = "brca_tcga_mutations",
-  entrezGeneIds = c(7157, 672, 675, 5290),
-  sampleIds = primary_sample_ids
-)
-
-# Extract the mutation table
-mutation_table <- mutation_data[["brca_tcga_mutations"]]
-
-# Check the results
-dim(mutation_table)
-head(mutation_table)
-
-library(dplyr)
-library(ggplot2)
-
-# Count unique samples with at least one mutation in each gene
-gene_mutations <- mutation_table %>%
-  group_by(entrezGeneId) %>%
-  summarise(
-    mutated_samples = n_distinct(sampleId),
-    mutation_records = n(),
-    .groups = "drop"
-  )
-
-# Create a table containing all four genes
-gene_summary <- tibble(
-  entrezGeneId = c(7157, 672, 675, 5290),
-  gene = c("TP53", "BRCA1", "BRCA2", "PIK3CA")
-) %>%
-  left_join(gene_mutations, by = "entrezGeneId") %>%
-  mutate(
-    mutated_samples = coalesce(mutated_samples, 0L),
-    mutation_records = coalesce(mutation_records, 0L),
-    total_samples = length(primary_sample_ids),
-    mutation_frequency = round(
-      mutated_samples / total_samples * 100, 2
-    )
-  )
-
-# Display the results
-gene_summary
-
-ggplot(gene_summary,
-       aes(x = reorder(gene, mutation_frequency),
-           y = mutation_frequency)) +
-  geom_col() +
-  coord_flip() +
-  labs(
-    title = "Mutation Frequency of Selected Genes in TCGA-BRCA",
-    x = "Gene",
-    y = "Samples with Mutations (%)"
-  ) +
-  theme_minimal()
-
-ggsave(
-  "results/figures/gene_mutation_frequency.png",
-  width = 8,
-  height = 5,
-  dpi = 300
-)
-
-ggplot(gene_summary,
-       aes(x = reorder(gene, mutation_frequency),
-           y = mutation_frequency)) +
-  geom_col(fill = "steelblue") +
-  geom_text(
-    aes(label = paste0(mutation_frequency, "%")),
-    hjust = -0.2,
-    size = 4
-  ) +
-  coord_flip() +
-  scale_y_continuous(
-    limits = c(0, 35),
-    expand = expansion(mult = c(0, 0.05))
-  ) +
-  labs(
-    title = "Mutation Frequency of Selected Genes in Breast Cancer",
-    subtitle = "TCGA-BRCA | 1,101 primary tumour samples",
-    x = "Gene",
-    y = "Samples with at least one detected mutation (%)"
-  ) +
-  theme_minimal(base_size = 12)
-
-mutation_table %>%
-  count(mutationType, sort = TRUE)
-
-class(mutation_table)
-
-names(mutation_table)
-
-dplyr::count(
-  mutation_table,
-  mutationType,
-  sort = TRUE
-)
-
-# Identify unique samples with at least one mutation
-mutated_samples <- mutation_table %>%
-  distinct(sampleId) %>%
-  mutate(mutation_status = "Mutated")
-
-# Check the number of unique mutated samples
-nrow(mutated_samples)
-
-clinical_analysis <- clinical_primary %>%
-  left_join(mutated_samples, by = "sampleId") %>%
-  mutate(
-    mutation_status = coalesce(
-      mutation_status,
-      "No detected mutation"
-    )
-  )
-
-# Check dimensions
-dim(clinical_analysis)
-
-# Count patients in each mutation group
-clinical_analysis %>%
-  count(mutation_status)
-
-# Check tumour stage distribution
-clinical_analysis %>%
-  count(AJCC_PATHOLOGIC_TUMOR_STAGE, mutation_status)
-
-class(clinical_analysis)
-
-dim(clinical_analysis)
-
-names(clinical_analysis)
-
-class(clinical_analysis$mutation_status)
-
-head(clinical_analysis$mutation_status)
-
-
-dplyr::count(clinical_analysis, mutation_status)
-
-
-dplyr::count(
-  clinical_analysis,
-  AJCC_PATHOLOGIC_TUMOR_STAGE,
-  mutation_status
-)
-
-
-sum(is.na(clinical_analysis$AJCC_PATHOLOGIC_TUMOR_STAGE))
-
-
-dplyr::count(
-  clinical_analysis,
-  AJCC_PATHOLOGIC_TUMOR_STAGE,
-  mutation_status
-) %>%
-  print(n = Inf)
-
-clinical_stage <- clinical_analysis %>%
-  mutate(
-    stage_group = case_when(
-      AJCC_PATHOLOGIC_TUMOR_STAGE %in%
-        c("Stage I", "Stage IA", "Stage IB") ~ "Stage I",
-      
-      AJCC_PATHOLOGIC_TUMOR_STAGE %in%
-        c("Stage II", "Stage IIA", "Stage IIB") ~ "Stage II",
-      
-      AJCC_PATHOLOGIC_TUMOR_STAGE %in%
-        c("Stage III", "Stage IIIA", "Stage IIIB",
-          "Stage IIIC") ~ "Stage III",
-      
-      AJCC_PATHOLOGIC_TUMOR_STAGE == "Stage IV" ~ "Stage IV",
-      
-      TRUE ~ NA_character_
-    )
-  ) %>%
-  filter(!is.na(stage_group))
-
-
-stage_comparison <- clinical_stage %>%
-  group_by(stage_group, mutation_status) %>%
-  summarise(
-    patients = n(),
-    .groups = "drop"
-  )
-
-stage_comparison
-
-
-stage_percentages <- clinical_stage %>%
-  group_by(stage_group) %>%
-  count(mutation_status) %>%
-  mutate(
-    percentage = round(n / sum(n) * 100, 2)
-  )
-
-stage_percentages
-
-
-stage_percentages <- clinical_stage %>%
-  dplyr::group_by(stage_group) %>%
-  dplyr::count(mutation_status) %>%
-  dplyr::mutate(
-    percentage = round(n / sum(n) * 100, 2)
-  )
-
-stage_percentages
-
-nrow(clinical_stage)
-
-
-# Create a contingency table
-stage_table <- table(
-  clinical_stage$stage_group,
-  clinical_stage$mutation_status
-)
-
-# View the table
-stage_table
-
-# Perform Chi-square test
-stage_test <- chisq.test(stage_table)
-
-# View the results
-stage_test
-
-
-# Check whether the Chi-square test assumptions are satisfied
-stage_test$expected
-
-
-
-
-# Prepare data for overall survival analysis
-
-survival_data <- clinical_analysis %>%
-  mutate(
-    OS_MONTHS = as.numeric(OS_MONTHS),
-    
-    event = case_when(
-      OS_STATUS == "1:DECEASED" ~ 1,
-      OS_STATUS == "0:LIVING" ~ 0,
-      TRUE ~ NA_real_
-    )
-  ) %>%
-  filter(
-    !is.na(OS_MONTHS),
-    OS_MONTHS >= 0,
-    !is.na(event)
-  )
-
-# Check the dimensions of the prepared dataset
-dim(survival_data)
-
-# Check the number of patients in each mutation group
-dplyr::count(survival_data, mutation_status)
-
-# Check the number of deaths and censored observations
-dplyr::count(survival_data, event)
-
-# Summarise the survival time
-summary(survival_data$OS_MONTHS)
-
-
-
-# Load survival analysis packages
-library(survival)
-library(survminer)
-
-# Fit Kaplan-Meier survival model
-km_fit <- survfit(
-  Surv(OS_MONTHS, event) ~ mutation_status,
-  data = survival_data
-)
-
-# View survival model results
-summary(km_fit)
-
-
-
-# Plot Kaplan-Meier survival curves
-
-km_plot <- ggsurvplot(
-  km_fit,
-  data = survival_data,
-  pval = TRUE,
-  conf.int = TRUE,
-  risk.table = TRUE,
-  xlab = "Time (months)",
-  ylab = "Overall survival probability",
-  title = "Overall Survival by Mutation Status",
-  legend.title = "Mutation Status",
-  legend.labs = c("Mutated", "No detected mutation"),
-  surv.median.line = "hv"
-)
-
-# Display the plot
-print(km_plot)
-
-# Save the plot
-ggsave(
-  "results/figures/kaplan_meier_overall_survival.png",
-  print(km_plot),
-  width = 9,
-  height = 7,
-  dpi = 300
-)
-
-
-
-# Perform the log-rank test
-logrank_test <- survdiff(
-  Surv(OS_MONTHS, event) ~ mutation_status,
-  data = survival_data
-)
-
-logrank_test
-
-# Extract median survival estimates
-summary(km_fit)$table
-
-
-
-# Identify samples with TP53 mutations
-tp53_samples <- mutation_table %>%
-  filter(entrezGeneId == 7157) %>%
-  distinct(sampleId) %>%
-  mutate(tp53_status = "Mutated")
-
-# Add TP53 status to the clinical survival data
-tp53_survival <- survival_data %>%
-  left_join(tp53_samples, by = "sampleId") %>%
-  mutate(
-    tp53_status = coalesce(
-      tp53_status,
-      "No detected mutation"
-    )
-  )
-
-# Check the two groups
-dplyr::count(tp53_survival, tp53_status)
-
-# Fit Kaplan-Meier model
-tp53_fit <- survfit(
-  Surv(OS_MONTHS, event) ~ tp53_status,
-  data = tp53_survival
-)
-
-# Plot survival curves
-ggsurvplot(
-  tp53_fit,
-  data = tp53_survival,
-  pval = TRUE,
-  conf.int = TRUE,
-  risk.table = TRUE,
-  title = "Overall Survival by TP53 Mutation Status",
-  xlab = "Time (months)",
-  ylab = "Overall survival probability"
-)
-
-
-
-# Identify samples with BRCA1 mutations
-brca1_samples <- mutation_table %>%
-  filter(entrezGeneId == 672) %>%
-  distinct(sampleId) %>%
-  mutate(brca1_status = "Mutated")
-
-# Add BRCA1 status to survival data
-brca1_survival <- survival_data %>%
-  left_join(brca1_samples, by = "sampleId") %>%
-  mutate(
-    brca1_status = coalesce(
-      brca1_status,
-      "No detected mutation"
-    )
-  )
-
-# Check group sizes
-dplyr::count(brca1_survival, brca1_status)
-
-# Fit Kaplan-Meier model
-brca1_fit <- survfit(
-  Surv(OS_MONTHS, event) ~ brca1_status,
-  data = brca1_survival
-)
-
-# Plot survival curves
-ggsurvplot(
-  brca1_fit,
-  data = brca1_survival,
-  pval = TRUE,
-  conf.int = TRUE,
-  risk.table = TRUE,
-  title = "Overall Survival by BRCA1 Mutation Status",
-  xlab = "Time (months)",
-  ylab = "Overall survival probability"
-)
-
-
-
-# 1. Identify samples with BRCA1 mutations
-brca1_samples <- mutation_table %>%
-  filter(entrezGeneId == 672) %>%
-  distinct(sampleId) %>%
-  mutate(brca1_status = "Mutated")
-
-# 2. Add BRCA1 status to survival data
-brca1_survival <- survival_data %>%
-  left_join(brca1_samples, by = "sampleId") %>%
-  mutate(
-    brca1_status = coalesce(
-      brca1_status,
-      "No detected mutation"
-    )
-  )
-
-# 3. Check group sizes
-dplyr::count(brca1_survival, brca1_status)
-
-# 4. Fit Kaplan-Meier model
-brca1_fit <- survfit(
-  Surv(OS_MONTHS, event) ~ brca1_status,
-  data = brca1_survival
-)
-
-# 5. Plot survival curves
-ggsurvplot(
-  brca1_fit,
-  data = brca1_survival,
-  pval = TRUE,
-  conf.int = TRUE,
-  risk.table = TRUE,
-  title = "Overall Survival by BRCA1 Mutation Status",
-  xlab = "Time (months)",
-  ylab = "Overall survival probability"
-)
-
-
-exists("mutation_table")
-exists("survival_data")
-exists("brca1_samples")
-
-
-brca1_samples <- mutation_table %>%
-  dplyr::filter(entrezGeneId == 672) %>%
-  dplyr::distinct(sampleId) %>%
-  dplyr::mutate(brca1_status = "Mutated")
-
-brca1_survival <- survival_data %>%
-  dplyr::left_join(brca1_samples, by = "sampleId") %>%
-  dplyr::mutate(
-    brca1_status = dplyr::coalesce(
-      brca1_status,
-      "No detected mutation"
-    )
-  )
-
-exists("brca1_survival")
-dplyr::count(brca1_survival, brca1_status)
-
-brca1_fit <- survfit(
-  Surv(OS_MONTHS, event) ~ brca1_status,
-  data = brca1_survival
-)
-
-ggsurvplot(
-  brca1_fit,
-  data = brca1_survival,
-  pval = TRUE,
-  conf.int = TRUE,
-  risk.table = TRUE,
-  title = "Overall Survival by BRCA1 Mutation Status",
-  xlab = "Time (months)",
-  ylab = "Overall survival probability"
-)
-
-
-
-# Identify BRCA2-mutated samples
-brca2_samples <- mutation_table %>%
-  dplyr::filter(entrezGeneId == 675) %>%
-  dplyr::distinct(sampleId) %>%
-  dplyr::mutate(brca2_status = "Mutated")
-
-# Add BRCA2 status to survival data
-brca2_survival <- survival_data %>%
-  dplyr::left_join(brca2_samples, by = "sampleId") %>%
-  dplyr::mutate(
-    brca2_status = dplyr::coalesce(
-      brca2_status,
-      "No detected mutation"
-    )
-  )
-
-# Check group sizes
-dplyr::count(brca2_survival, brca2_status)
-
-# Fit Kaplan-Meier model
-brca2_fit <- survfit(
-  Surv(OS_MONTHS, event) ~ brca2_status,
-  data = brca2_survival
-)
-
-# Plot survival curves
-ggsurvplot(
-  brca2_fit,
-  data = brca2_survival,
-  pval = TRUE,
-  conf.int = TRUE,
-  risk.table = TRUE,
-  title = "Overall Survival by BRCA2 Mutation Status",
-  xlab = "Time (months)",
-  ylab = "Overall survival probability"
-)
-
-
-
-# Identify PIK3CA-mutated samples
-pik3ca_samples <- mutation_table %>%
-  dplyr::filter(entrezGeneId == 5290) %>%
-  dplyr::distinct(sampleId) %>%
-  dplyr::mutate(pik3ca_status = "Mutated")
-
-# Add PIK3CA status to survival data
-pik3ca_survival <- survival_data %>%
-  dplyr::left_join(pik3ca_samples, by = "sampleId") %>%
-  dplyr::mutate(
-    pik3ca_status = dplyr::coalesce(
-      pik3ca_status,
-      "No detected mutation"
-    )
-  )
-
-# Check group sizes
-dplyr::count(pik3ca_survival, pik3ca_status)
-
-# Fit Kaplan-Meier model
-pik3ca_fit <- survfit(
-  Surv(OS_MONTHS, event) ~ pik3ca_status,
-  data = pik3ca_survival
-)
-
-# Plot survival curves
-ggsurvplot(
-  pik3ca_fit,
-  data = pik3ca_survival,
-  pval = TRUE,
-  conf.int = TRUE,
-  risk.table = TRUE,
-  title = "Overall Survival by PIK3CA Mutation Status",
-  xlab = "Time (months)",
-  ylab = "Overall survival probability"
-)
-
-
-
-# Check available clinical variables
-names(survival_data)[
-  names(survival_data) %in%
-    c("AGE", "AJCC_PATHOLOGIC_TUMOR_STAGE",
-      "OS_MONTHS", "event", "mutation_status")
 ]
 
-# Check missing values
-colSums(is.na(
-  survival_data[, c(
-    "AGE",
-    "AJCC_PATHOLOGIC_TUMOR_STAGE",
-    "mutation_status"
-  )]
-))
+if (length(missing_packages) > 0) {
+  stop(
+    "Missing packages: ",
+    paste(missing_packages, collapse = ", "),
+    ". Run the project setup script first."
+  )
+}
 
-# Check age distribution
-summary(survival_data$AGE)
+library(cBioPortalData)
+library(dplyr)
 
-# Check tumour stage distribution
-dplyr::count(
-  survival_data,
-  AJCC_PATHOLOGIC_TUMOR_STAGE
+
+# 2. Define project settings ---------------------------------
+
+study_id <- "brca_tcga"
+mutation_profile_id <- "brca_tcga_mutations"
+
+gene_ids <- c(7157, 672, 675, 5290)
+
+gene_names <- c(
+  "TP53",
+  "BRCA1",
+  "BRCA2",
+  "PIK3CA"
 )
 
+raw_dir <- here::here("data", "raw")
+processed_dir <- here::here("data", "processed")
+
+dir.create(raw_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(processed_dir, recursive = TRUE, showWarnings = FALSE)
 
 
+# 3. Define dataset locations ---------------------------------
 
-# Prepare tumour stage groups
-cox_data <- survival_data %>%
-  mutate(
-    AGE = as.numeric(AGE),
+clinical_file <- file.path(raw_dir, "clinical_data.rds")
+primary_file <- file.path(raw_dir, "primary_clinical_data.rds")
+mutation_file <- file.path(raw_dir, "selected_gene_mutations.rds")
+
+clinical_exists <- file.exists(clinical_file)
+primary_exists <- file.exists(primary_file)
+mutation_exists <- file.exists(mutation_file)
+
+message("\nChecking existing datasets...")
+
+
+# 4. Load existing datasets ----------------------------------
+
+if (clinical_exists) {
+  clinical_data <- readRDS(clinical_file)
+  message("Loaded existing clinical dataset.")
+}
+
+if (primary_exists) {
+  primary_data <- readRDS(primary_file)
+  message("Loaded existing primary tumour dataset.")
+}
+
+if (mutation_exists) {
+  mutation_table <- readRDS(mutation_file)
+  message("Loaded existing mutation dataset.")
+}
+
+
+# 5. Retrieve missing datasets -------------------------------
+
+needs_clinical_download <- !clinical_exists || !primary_exists
+needs_mutation_download <- !mutation_exists
+
+if (needs_clinical_download || needs_mutation_download) {
+  
+  message("\nSome datasets are missing. Connecting to cBioPortal...")
+  
+  cbio <- tryCatch(
+    cBioPortal(),
+    error = function(e) {
+      stop("cBioPortal connection failed: ", conditionMessage(e))
+    }
+  )
+  
+  if (is.null(cbio)) {
+    stop("Could not establish a cBioPortal connection.")
+  }
+  
+  # Retrieve clinical data only when necessary
+  if (needs_clinical_download) {
     
-    stage_group = case_when(
-      AJCC_PATHOLOGIC_TUMOR_STAGE %in%
-        c("Stage I", "Stage IA", "Stage IB") ~ "Stage I",
-      
-      AJCC_PATHOLOGIC_TUMOR_STAGE %in%
-        c("Stage II", "Stage IIA", "Stage IIB") ~ "Stage II",
-      
-      AJCC_PATHOLOGIC_TUMOR_STAGE %in%
-        c("Stage III", "Stage IIIA", "Stage IIIB",
-          "Stage IIIC") ~ "Stage III",
-      
-      AJCC_PATHOLOGIC_TUMOR_STAGE == "Stage IV" ~ "Stage IV",
-      
-      TRUE ~ NA_character_
+    message("Retrieving clinical data...")
+    
+    clinical_data <- clinicalData(
+      cbio,
+      studyId = study_id
     )
-  ) %>%
-  filter(
-    !is.na(AGE),
-    !is.na(stage_group)
+    
+    if (nrow(clinical_data) == 0) {
+      stop("Clinical data retrieval returned no records.")
+    }
+    
+    if (!"SAMPLE_TYPE" %in% names(clinical_data)) {
+      stop("SAMPLE_TYPE is missing from the clinical dataset.")
+    }
+    
+    primary_data <- clinical_data %>%
+      filter(SAMPLE_TYPE == "Primary")
+    
+    if (nrow(primary_data) == 0) {
+      stop("No primary tumour samples were identified.")
+    }
+    
+    saveRDS(clinical_data, clinical_file)
+    saveRDS(primary_data, primary_file)
+    
+    message("Clinical and primary tumour datasets saved.")
+  }
+  
+  # Retrieve mutations only when necessary
+  if (needs_mutation_download) {
+    
+    message("Retrieving selected-gene mutation data...")
+    
+    if (!exists("primary_data")) {
+      primary_data <- readRDS(primary_file)
+    }
+    
+    profiles <- molecularProfiles(
+      cbio,
+      studyId = study_id
+    )
+    
+    if (!mutation_profile_id %in% profiles$molecularProfileId) {
+      stop("The required mutation profile was not found.")
+    }
+    
+    mutation_data <- mutationData(
+      api = cbio,
+      molecularProfileIds = mutation_profile_id,
+      entrezGeneIds = gene_ids,
+      sampleIds = unique(primary_data$sampleId)
+    )
+    
+    if (!mutation_profile_id %in% names(mutation_data)) {
+      stop("The expected mutation profile was not returned.")
+    }
+    
+    mutation_table <- mutation_data[[mutation_profile_id]]
+    
+    if (is.null(mutation_table) || nrow(mutation_table) == 0) {
+      stop("No mutation records were returned.")
+    }
+    
+    saveRDS(mutation_table, mutation_file)
+    
+    message("Selected-gene mutation dataset saved.")
+  }
+  
+} else {
+  
+  message("All required datasets already exist.")
+  message("No download is necessary.")
+}
+
+
+# 6. Validate dataset structure ------------------------------
+
+message("\nDATA STRUCTURE CHECKS")
+
+if (!is.data.frame(clinical_data) ||
+    !is.data.frame(primary_data) ||
+    !is.data.frame(mutation_table)) {
+  stop("One or more datasets are not data frames.")
+}
+
+required_clinical_columns <- c(
+  "patientId",
+  "sampleId",
+  "SAMPLE_TYPE"
+)
+
+required_mutation_columns <- c(
+  "sampleId",
+  "entrezGeneId"
+)
+
+if (!all(required_clinical_columns %in% names(clinical_data))) {
+  stop("Required columns are missing from clinical_data.")
+}
+
+if (!all(required_clinical_columns %in% names(primary_data))) {
+  stop("Required columns are missing from primary_data.")
+}
+
+if (!all(required_mutation_columns %in% names(mutation_table))) {
+  stop("Required columns are missing from mutation_table.")
+}
+
+if (nrow(clinical_data) == 0 ||
+    nrow(primary_data) == 0 ||
+    nrow(mutation_table) == 0) {
+  stop("One or more datasets are empty.")
+}
+
+message("Dataset structures are valid.")
+
+
+# 7. Validate primary tumour samples --------------------------
+
+message("\nPRIMARY TUMOUR QUALITY CHECKS")
+
+if (any(primary_data$SAMPLE_TYPE != "Primary", na.rm = TRUE)) {
+  stop("Non-primary samples were found in primary_data.")
+}
+
+duplicate_patient_ids <- sum(
+  duplicated(primary_data$patientId)
+)
+
+duplicate_sample_ids <- sum(
+  duplicated(primary_data$sampleId)
+)
+
+if (duplicate_patient_ids > 0) {
+  stop(
+    "Duplicate patient IDs detected: ",
+    duplicate_patient_ids
   )
+}
 
-# Set Stage I as the reference category
-cox_data$stage_group <- factor(
-  cox_data$stage_group,
-  levels = c("Stage I", "Stage II", "Stage III", "Stage IV")
-)
-
-# Check the final dataset
-dim(cox_data)
-
-# Check stage distribution
-dplyr::count(cox_data, stage_group)
-
-# Check age summary
-summary(cox_data$AGE)
-
-
-# Fit adjusted Cox proportional hazards model
-cox_model <- coxph(
-  Surv(OS_MONTHS, event) ~
-    mutation_status + AGE + stage_group,
-  data = cox_data
-)
-
-# Display model results
-summary(cox_model)
-
-
-
-
-ph_test <- cox.zph(cox_model)
-
-ph_test
-plot(ph_test)
-
-
-# Plot proportional hazards diagnostics for all variables
-plot(ph_test, var = "stage_group")
-
-
-# Fit stratified Cox regression model
-cox_stratified <- coxph(
-  Surv(OS_MONTHS, event) ~
-    mutation_status + AGE + strata(stage_group),
-  data = cox_data
-)
-
-# Display results
-summary(cox_stratified)
-
-# Check proportional hazards assumption again
-ph_stratified <- cox.zph(cox_stratified)
-
-ph_stratified
-
-
-summary(cox_stratified)
-
-
-# Identify samples with TP53 mutations
-tp53_samples <- mutation_table %>%
-  dplyr::filter(entrezGeneId == 7157) %>%
-  dplyr::distinct(sampleId) %>%
-  dplyr::mutate(tp53_status = "Mutated")
-
-# Combine TP53 status with clinical data
-tp53_clinical <- clinical_analysis %>%
-  dplyr::left_join(tp53_samples, by = "sampleId") %>%
-  dplyr::mutate(
-    tp53_status = dplyr::coalesce(
-      tp53_status,
-      "No detected mutation"
-    )
+if (duplicate_sample_ids > 0) {
+  stop(
+    "Duplicate sample IDs detected: ",
+    duplicate_sample_ids
   )
+}
 
-# Group tumour stages
-tp53_clinical <- tp53_clinical %>%
-  dplyr::mutate(
-    stage_group = dplyr::case_when(
-      AJCC_PATHOLOGIC_TUMOR_STAGE %in%
-        c("Stage I", "Stage IA", "Stage IB") ~ "Stage I",
-      AJCC_PATHOLOGIC_TUMOR_STAGE %in%
-        c("Stage II", "Stage IIA", "Stage IIB") ~ "Stage II",
-      AJCC_PATHOLOGIC_TUMOR_STAGE %in%
-        c("Stage III", "Stage IIIA", "Stage IIIB",
-          "Stage IIIC") ~ "Stage III",
-      AJCC_PATHOLOGIC_TUMOR_STAGE == "Stage IV" ~ "Stage IV",
-      TRUE ~ NA_character_
-    )
-  ) %>%
-  dplyr::filter(!is.na(stage_group))
+message("All samples are primary tumour samples.")
+message("Duplicate patient IDs: ", duplicate_patient_ids)
+message("Duplicate sample IDs: ", duplicate_sample_ids)
 
-# Create contingency table
-tp53_stage_table <- table(
-  tp53_clinical$stage_group,
-  tp53_clinical$tp53_status
+
+# 8. Validate mutation records -------------------------------
+
+message("\nMUTATION DATA QUALITY CHECKS")
+
+mutation_table$entrezGeneId <- as.integer(
+  as.character(mutation_table$entrezGeneId)
 )
 
-tp53_stage_table
+if (anyNA(mutation_table$entrezGeneId)) {
+  stop("Missing or invalid Entrez Gene IDs in mutation data.")
+}
 
-# Chi-square test
-chisq.test(tp53_stage_table)
-
-
-
-# Identify BRCA1-mutated samples
-brca1_samples <- mutation_table %>%
-  dplyr::filter(entrezGeneId == 672) %>%
-  dplyr::distinct(sampleId) %>%
-  dplyr::mutate(brca1_status = "Mutated")
-
-# Combine with clinical data
-brca1_clinical <- clinical_analysis %>%
-  dplyr::left_join(brca1_samples, by = "sampleId") %>%
-  dplyr::mutate(
-    brca1_status = dplyr::coalesce(
-      brca1_status,
-      "No detected mutation"
-    ),
-    stage_group = dplyr::case_when(
-      AJCC_PATHOLOGIC_TUMOR_STAGE %in%
-        c("Stage I", "Stage IA", "Stage IB") ~ "Stage I",
-      AJCC_PATHOLOGIC_TUMOR_STAGE %in%
-        c("Stage II", "Stage IIA", "Stage IIB") ~ "Stage II",
-      AJCC_PATHOLOGIC_TUMOR_STAGE %in%
-        c("Stage III", "Stage IIIA", "Stage IIIB",
-          "Stage IIIC") ~ "Stage III",
-      AJCC_PATHOLOGIC_TUMOR_STAGE == "Stage IV" ~ "Stage IV",
-      TRUE ~ NA_character_
-    )
-  ) %>%
-  dplyr::filter(!is.na(stage_group))
-
-# Contingency table
-brca1_stage_table <- table(
-  brca1_clinical$stage_group,
-  brca1_clinical$brca1_status
+unexpected_genes <- setdiff(
+  unique(mutation_table$entrezGeneId),
+  gene_ids
 )
 
-brca1_stage_table
+if (length(unexpected_genes) > 0) {
+  stop(
+    "Unexpected gene IDs found: ",
+    paste(unexpected_genes, collapse = ", ")
+  )
+}
 
-# Chi-square test
-chisq.test(brca1_stage_table)
+primary_sample_ids <- unique(primary_data$sampleId)
+
+mutation_sample_ids <- unique(mutation_table$sampleId)
+
+unexpected_samples <- setdiff(
+  mutation_sample_ids,
+  primary_sample_ids
+)
+
+if (length(unexpected_samples) > 0) {
+  stop(
+    "Mutation records contain samples outside the primary tumour cohort."
+  )
+}
+
+message("Mutation records contain only the selected genes.")
+message("All mutation sample IDs belong to the primary tumour cohort.")
+
+
+# 9. Record gene-level mutation counts -----------------------
+
+gene_summary <- data.frame(
+  gene_name = gene_names,
+  entrez_gene_id = gene_ids,
+  mutated_samples = vapply(
+    gene_ids,
+    function(id) {
+      length(unique(
+        mutation_table$sampleId[
+          mutation_table$entrezGeneId == id
+        ]
+      ))
+    },
+    integer(1)
+  )
+)
+
+gene_summary$frequency_percent <- round(
+  gene_summary$mutated_samples /
+    nrow(primary_data) * 100,
+  2
+)
+
+message("\nSELECTED GENE MUTATION SUMMARY")
+print(gene_summary, row.names = FALSE)
+
+
+# 10. Record acquisition information -------------------------
+
+acquisition_information <- data.frame(
+  study_id = study_id,
+  mutation_profile = mutation_profile_id,
+  retrieval_or_load_date = as.character(Sys.Date()),
+  clinical_records = nrow(clinical_data),
+  primary_samples = nrow(primary_data),
+  mutation_records = nrow(mutation_table),
+  duplicate_patient_ids = duplicate_patient_ids,
+  duplicate_sample_ids = duplicate_sample_ids,
+  selected_genes = paste(gene_names, collapse = ", ")
+)
+
+readr::write_csv(
+  acquisition_information,
+  file.path(processed_dir, "data_acquisition_summary.csv")
+)
+
+readr::write_csv(
+  gene_summary,
+  file.path(processed_dir, "acquisition_gene_summary.csv")
+)
+
+
+# 11. Record software versions and session information -------
+
+package_versions <- data.frame(
+  package = required_packages,
+  version = vapply(
+    required_packages,
+    function(package) {
+      as.character(packageVersion(package))
+    },
+    character(1)
+  )
+)
+
+readr::write_csv(
+  package_versions,
+  file.path(processed_dir, "acquisition_package_versions.csv")
+)
+
+writeLines(
+  capture.output(sessionInfo()),
+  file.path(processed_dir, "acquisition_session_info.txt")
+)
+
+
+# 12. Record data provenance ---------------------------------
+
+provenance <- c(
+  "PROJECT: TCGA-BRCA Bioinformatics",
+  "DATA SOURCE: cBioPortal",
+  paste("STUDY ID:", study_id),
+  paste("MUTATION PROFILE:", mutation_profile_id),
+  paste("SELECTED GENES:", paste(gene_names, collapse = ", ")),
+  paste("ACQUISITION/LOAD DATE:", Sys.Date()),
+  paste("CLINICAL RECORDS:", nrow(clinical_data)),
+  paste("PRIMARY TUMOUR SAMPLES:", nrow(primary_data)),
+  paste("MUTATION RECORDS:", nrow(mutation_table)),
+  "DATA TYPE: Public research data"
+)
+
+writeLines(
+  provenance,
+  file.path(processed_dir, "data_provenance.txt")
+)
+
+
+# 13. Final quality checks -----------------------------------
+
+stopifnot(
+  nrow(clinical_data) == 1108,
+  nrow(primary_data) == 1101,
+  nrow(mutation_table) == 686,
+  duplicate_patient_ids == 0,
+  duplicate_sample_ids == 0,
+  all(mutation_table$entrezGeneId %in% gene_ids),
+  all(mutation_table$sampleId %in% primary_sample_ids)
+)
+
+message("\n==========================================")
+message("DATA ACQUISITION AND QC COMPLETED")
+message("==========================================")
+
+message("Clinical records: ", nrow(clinical_data))
+message("Primary tumour samples: ", nrow(primary_data))
+message("Mutation records: ", nrow(mutation_table))
+message("Duplicate patient IDs: ", duplicate_patient_ids)
+message("Duplicate sample IDs: ", duplicate_sample_ids)
+
+message("\nSelected genes:")
+message(paste(gene_names, collapse = ", "))
+
+message("\nAll acquisition quality checks passed.")
+message("==========================================")
