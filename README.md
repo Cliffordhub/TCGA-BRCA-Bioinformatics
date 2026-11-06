@@ -224,9 +224,11 @@ Raw and processed datasets are excluded from version control through `.gitignore
 
 ## 13. Project Status
 
-The data acquisition, processing, quality control, and statistical analysis stages have been completed.
+## Project Status
 
-The project is currently at the results interpretation and reporting stage.
+The data acquisition, processing, quality control, statistical analysis, results interpretation, and reporting stages have been completed.
+
+This project marks a completed milestone in my learning journey in cancer genomics and bioinformatics, providing practical experience in analysing publicly available cancer datasets, exploring genomic alterations, and investigating their relationships with clinical characteristics and patient outcomes.
 
 ## 14. Author
 
